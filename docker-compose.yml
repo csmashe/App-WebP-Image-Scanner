@@ -1,0 +1,100 @@
+services:
+  webpscanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_SENTRY_DSN=${VITE_SENTRY_DSN:-}
+        - VITE_GA_MEASUREMENT_ID=${VITE_GA_MEASUREMENT_ID:-}
+    image: webpscanner:latest
+    container_name: webpscanner
+    ports:
+      - "5000:5000"
+    environment:
+      # Application settings
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5000
+
+      # Database connection
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/webpscanner.db
+
+      # Email settings (SendGrid)
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
+      - Email__FromEmail=${FROM_EMAIL:-noreply@example.com}
+      - Email__FromName=${FROM_NAME:-WebP Scanner}
+      - Email__Enabled=${EMAIL_ENABLED:-false}
+
+      # Crawler settings
+      - Crawler__ChromiumPath=/usr/bin/chromium
+      - Crawler__EnableSandbox=false  # Docker provides isolation; enable requires SYS_ADMIN
+      - Crawler__RestrictToTargetDomain=true
+      - Crawler__BlockTrackingDomains=true
+      - Crawler__MaxPagesPerScan=${MAX_PAGES_PER_SCAN:-2000}
+      - Crawler__PageTimeoutSeconds=${PAGE_TIMEOUT_SECONDS:-30}
+
+      # Queue settings
+      - Queue__MaxConcurrentScans=${MAX_CONCURRENT_SCANS:-2}
+      - Queue__MaxQueueSize=${MAX_QUEUE_SIZE:-100}
+      - Queue__MaxQueuedJobsPerIp=${MAX_QUEUED_JOBS_PER_IP:-20}
+
+      # Security settings
+      - Security__MaxRequestsPerMinute=${MAX_REQUESTS_PER_MINUTE:-100}
+      - Security__EnforceHttps=${ENFORCE_HTTPS:-false}
+
+      # Data retention settings
+      - DataRetention__RetentionHours=${SCAN_RETENTION_HOURS:-168}
+      - DataRetention__CleanupIntervalMinutes=${CLEANUP_INTERVAL_MINUTES:-60}
+    volumes:
+      - webpscanner-data:/app/data
+      - webpscanner-logs:/app/logs
+      - webpscanner-images:/app/converted-images
+    restart: unless-stopped
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Read-only root filesystem where possible
+    read_only: false  # Cannot be true due to /tmp and Chromium cache needs
+
+    # Limit capabilities
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      # Add SYS_ADMIN here if enabling Crawler__EnableSandbox=true
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+    # Health check (mirrors Dockerfile but can be overridden)
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  webpscanner-data:
+    driver: local
+  webpscanner-logs:
+    driver: local
+  webpscanner-images:
+    driver: local

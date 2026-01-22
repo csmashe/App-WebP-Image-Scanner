@@ -1,0 +1,6 @@
+# Enforce LF line endings for all YAML files
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Shell scripts should also use LF
+*.sh text eol=lf

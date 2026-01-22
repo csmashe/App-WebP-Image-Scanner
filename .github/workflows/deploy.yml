@@ -1,0 +1,66 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    # Only run on our repo, not forks
+    if: github.repository == 'csmashe/App-WebP-Image-Scanner'
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy files to production server
+        run: |
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude 'tests' \
+            --exclude '.github' \
+            --exclude '*.md' \
+            --exclude '.gitignore' \
+            --exclude 'data/' \
+            --exclude 'logs/' \
+            --exclude 'converted-images/' \
+            ./ csmashe@10.0.3.55:/home/csmashe/webpscanner/
+
+      - name: Deploy to production
+        run: |
+          ssh csmashe@10.0.3.55 << 'EOF'
+            cd /home/csmashe/webpscanner
+
+            # Create .env file with secrets (passed via environment)
+            umask 077
+            cat > .env << ENVFILE
+          SENDGRID_API_KEY=${{ secrets.SENDGRID_API_KEY }}
+          FROM_EMAIL=${{ secrets.FROM_EMAIL }}
+          FROM_NAME=${{ secrets.FROM_NAME }}
+          EMAIL_ENABLED=true
+          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+          VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}
+          VITE_GA_MEASUREMENT_ID=${{ secrets.VITE_GA_MEASUREMENT_ID }}
+          ENVFILE
+            chmod 600 .env
+
+            # Build and deploy
+            docker compose down || true
+            docker compose build --no-cache
+            docker compose up -d
+
+            # Wait for health check
+            echo "Waiting for container to be healthy..."
+            sleep 10
+            docker compose ps
+
+            # Cleanup old images
+            docker image prune -f
+          EOF
+
+      - name: Verify deployment
+        run: |
+          sleep 5
+          ssh csmashe@10.0.3.55 "curl -sf http://localhost:5000/api/health || exit 1"
+          echo "Deployment successful!"

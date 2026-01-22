@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, development]
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main]  # Run on merge to main
+
+# Cancel in-progress runs when PR is updated
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-lint-test:
+    # Only run on our self-hosted runner; fork PRs require maintainer label
+    if: |
+      github.repository == 'csmashe/App-WebP-Image-Scanner' &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+      )
+    runs-on: self-hosted
+
+    defaults:
+      run:
+        working-directory: src/WebPScanner.Web
+
+    steps:
+      - name: Cleanup Docker artifacts
+        working-directory: .
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/workspace" alpine sh -c "rm -rf /workspace/data /workspace/logs /workspace/converted-images" 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: src/WebPScanner.Web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  build-and-test:
+    # Only run on our self-hosted runner; fork PRs require maintainer label
+    if: |
+      github.repository == 'csmashe/App-WebP-Image-Scanner' &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+      )
+    runs-on: self-hosted
+
+    steps:
+      - name: Cleanup Docker artifacts
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/workspace" alpine sh -c "rm -rf /workspace/data /workspace/logs /workspace/converted-images" 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # .NET 10 SDK is pre-installed on the self-hosted runner
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run unit and integration tests
+        run: dotnet test --no-build --configuration Release --verbosity normal --filter "FullyQualifiedName!~E2E"
+
+      - name: Build Docker image for E2E tests
+        run: docker compose build
+
+      - name: Start application for E2E tests
+        run: |
+          docker compose up -d
+          echo "Waiting for app to be healthy..."
+          if timeout 60 bash -c 'until curl -f http://localhost:5000/api/health; do sleep 2; done'; then
+            echo "App is ready"
+          else
+            EXIT_CODE=$?
+            echo "Health check failed with exit code $EXIT_CODE"
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "ERROR: Health check timed out after 60 seconds"
+            else
+              echo "ERROR: Health check received non-200 response"
+            fi
+            echo "=== Docker compose logs ==="
+            docker compose logs
+            exit 1
+          fi
+
+      - name: Install Playwright browsers
+        run: |
+          dotnet tool update --global Microsoft.Playwright.CLI
+          "$HOME/.dotnet/tools/playwright" install chromium
+
+      - name: Run E2E tests
+        env:
+          E2E_BASE_URL: http://localhost:5000
+        run: dotnet test --no-build --configuration Release --verbosity normal --filter "FullyQualifiedName~E2E"
+
+      - name: Stop application and cleanup Docker
+        if: always()
+        run: |
+          docker compose down --rmi local --volumes --remove-orphans
+          docker image prune -f
+          # Clean up any Docker-created files with wrong ownership
+          docker run --rm -v "${{ github.workspace }}:/workspace" alpine sh -c "rm -rf /workspace/data /workspace/logs /workspace/converted-images" || true

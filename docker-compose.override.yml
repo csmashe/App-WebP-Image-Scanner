@@ -1,0 +1,22 @@
+# Development overrides for docker-compose.yml
+# This file is automatically loaded by docker-compose when present
+# Use for local development settings that differ from production
+
+services:
+  webpscanner:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Email__Enabled=false  # Disable email in development
+      - Security__MaxRequestsPerMinute=1000  # Higher rate limits for dev
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount local data directory for easier debugging
+      - ./data:/app/data
+
+    # Less restrictive limits for development
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4'

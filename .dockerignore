@@ -1,0 +1,89 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*.sublime-*
+
+# .NET build outputs
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+**/*.cache
+**/publish/
+*.nupkg
+
+# .NET solution-level files not needed in container
+*.sln.DotSettings
+*.sln.DotSettings.user
+launchSettings.json
+
+# Node
+**/node_modules/
+src/WebPScanner.Web/dist/
+src/WebPScanner.Web/.vite/
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Test files
+tests/
+**/*.Tests/
+**/TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Screenshots (development only)
+screenshots/
+
+# Data and database files (mounted as volume)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Cache and temp files
+.cache
+.tmp
+tmp/
+
+# Docker files we don't need copied into the build context
+docker-compose*.yml
+Dockerfile*
+!Dockerfile
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+azure-pipelines.yml
+Jenkinsfile
+
+# Development tools
+.editorconfig
+.prettierrc*
+.eslintrc*
+tsconfig.tsbuildinfo

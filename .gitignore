@@ -1,3 +1,46 @@
+# IDE
 /.cache/
 /.claude/
 /.idea/
+.vscode/
+*.swp
+*.swo
+
+# Planning/Documentation (local only)                                                                                    plan.md                                                                                                      
+PRD.md                                                                                 
+PROMPT.md                                   
+activity.md
+ralph.sh
+
+# .NET
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+**/node_modules/
+**/.cache/
+src/WebPScanner.Web/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Screenshots and root-level images
+screenshots/
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif

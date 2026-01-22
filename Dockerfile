@@ -37,10 +37,9 @@ RUN npm run build
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# Install Chromium dependencies for PuppeteerSharp, wget for health checks, and gosu for privilege dropping
-# Security: Install only necessary packages and clean up
+# Install Chromium dependencies and tools
+# Note: Ubuntu 24.04 chromium package is snap-based and does not work in Docker
 RUN apt-get update && apt-get install -y \
-    chromium \
     fonts-liberation \
     libasound2t64 \
     libatk-bridge2.0-0 \
@@ -55,16 +54,24 @@ RUN apt-get update && apt-get install -y \
     libxcomposite1 \
     libxdamage1 \
     libxrandr2 \
+    libxkbcommon0 \
     xdg-utils \
     wget \
     gosu \
+    unzip \
     --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /tmp/* \
     && rm -rf /var/tmp/*
 
-# Set Puppeteer to use system Chromium with sandbox disabled (required in Docker)
+# Install Chrome for Testing (Googles official headless Chrome for automation)
+RUN wget -q https://storage.googleapis.com/chrome-for-testing-public/131.0.6778.204/linux64/chrome-linux64.zip \
+    && unzip chrome-linux64.zip -d /opt \
+    && rm chrome-linux64.zip \
+    && ln -s /opt/chrome-linux64/chrome /usr/bin/chromium
+
+# Set Puppeteer to use Chrome for Testing
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 

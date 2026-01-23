@@ -69,6 +69,8 @@ public class ImageAnalyzerService : IImageAnalyzerService
             _logger = logger;
         }
 
+        public bool HasPendingImages => !_pendingResponses.IsEmpty;
+
         public async Task AttachAsync()
         {
             // Create CDP session
@@ -83,6 +85,25 @@ public class ImageAnalyzerService : IImageAnalyzerService
 
             // Listen for Network.responseReceived events
             _cdpSession.MessageReceived += OnCdpMessageReceived;
+        }
+
+        public async Task<bool> WaitForPendingImagesAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+        {
+            if (_disposed || _pendingResponses.IsEmpty)
+                return true;
+
+            var deadline = DateTime.UtcNow + timeout;
+            const int pollIntervalMs = 50;
+
+            while (DateTime.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
+            {
+                if (_pendingResponses.IsEmpty)
+                    return true;
+
+                await Task.Delay(pollIntervalMs, cancellationToken);
+            }
+
+            return _pendingResponses.IsEmpty;
         }
 
         private void OnCdpMessageReceived(object? sender, MessageEventArgs e)

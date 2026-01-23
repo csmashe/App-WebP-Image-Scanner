@@ -20,8 +20,32 @@ public class CrawlerOptions
 
     /// <summary>
     /// Network idle timeout in milliseconds for SPA support.
+    /// After this duration of no network activity, the page is considered loaded.
     /// </summary>
-    public int NetworkIdleTimeoutMs { get; init; } = 2000;
+    public int NetworkIdleTimeoutMs { get; init; } = 500;
+
+    /// <summary>
+    /// Maximum time to wait for network idle in milliseconds.
+    /// If network doesn't go idle within this time, continue anyway.
+    /// This prevents pages with persistent connections (chat widgets, etc.) from stalling the scan.
+    /// </summary>
+    public int MaxNetworkIdleWaitMs { get; init; } = 5000;
+
+    /// <summary>
+    /// Grace period in milliseconds to wait for pending images after network becomes idle.
+    /// If images are still loading when network idle is reached, wait up to this long for them to complete.
+    /// </summary>
+    public int PendingImageGracePeriodMs { get; init; } = 300;
+
+    /// <summary>
+    /// Whether to scroll pages to trigger lazy-loaded images.
+    /// </summary>
+    public bool ScrollToTriggerLazyImages { get; init; } = true;
+
+    /// <summary>
+    /// Delay in milliseconds between scroll steps when scrolling to trigger lazy images.
+    /// </summary>
+    public int ScrollStepDelayMs { get; init; } = 100;
 
     /// <summary>
     /// Delay in milliseconds between page requests.

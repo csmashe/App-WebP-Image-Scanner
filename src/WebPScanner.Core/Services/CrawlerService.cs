@@ -194,6 +194,38 @@ public partial class CrawlerService : ICrawlerService, IDisposable
                 _logger.LogInformation("Page crawl result for {Url}: Success={Success}, Status={Status}",
                     currentUrl, pageCrawlResult.Success, pageCrawlResult.StatusCode);
 
+                // === DETAILED PAGE LOGGING FOR DEBUGGING ===
+                if (pageCrawlResult.Success)
+                {
+                    var pageImages = pageCrawlResult.DetectedImages;
+                    var pageNonWebPImages = pageImages.Where(img => _imageAnalyzer.IsNonWebPRasterImage(img.MimeType)).ToList();
+
+                    _logger.LogInformation("Page scan completed: {Url} | Load time: {Duration}ms | Images: {Total} total, {NonWebP} non-WebP",
+                        currentUrl, pageCrawlResult.CrawlDuration.TotalMilliseconds.ToString("F0"), pageImages.Count, pageNonWebPImages.Count);
+
+                    if (pageImages.Count > 0)
+                    {
+                        _logger.LogDebug("=== PAGE SCAN DETAILS: {Url} ===", currentUrl);
+                        foreach (var img in pageImages)
+                        {
+                            var isNonWebP = _imageAnalyzer.IsNonWebPRasterImage(img.MimeType);
+                            // Safely parse URL to extract filename, falling back to raw URL if malformed
+                            var imageName = Uri.TryCreate(img.Url, UriKind.Absolute, out var parsedUri)
+                                ? Path.GetFileName(parsedUri.AbsolutePath)
+                                : img.Url;
+                            if (string.IsNullOrEmpty(imageName))
+                                imageName = img.Url;
+                            _logger.LogDebug("  [{Status}] {ImageName} | MIME: {MimeType} | Size: {Size} bytes | URL: {Url}",
+                                isNonWebP ? "NON-WEBP" : "OK",
+                                imageName,
+                                img.MimeType,
+                                img.Size,
+                                img.Url);
+                        }
+                        _logger.LogDebug("=== END PAGE SCAN DETAILS ===");
+                    }
+                }
+
                 if (progressCallback != null)
                 {
                     await progressCallback(new CrawlProgress
@@ -539,28 +571,63 @@ public partial class CrawlerService : ICrawlerService, IDisposable
                 return result;
             }
 
+            var stepTimer = Stopwatch.StartNew();
+
             var navigationResponse = await page.GoToAsync(url, new NavigationOptions
             {
                 Timeout = _options.PageTimeoutSeconds * 1000,
                 WaitUntil = [WaitUntilNavigation.Load]
             });
 
+            var navigationTime = stepTimer.ElapsedMilliseconds;
+            stepTimer.Restart();
+
+            // Scroll the page to trigger lazy-loaded images
+            if (_options.ScrollToTriggerLazyImages)
+            {
+                await ScrollPageToTriggerLazyImagesAsync(page, cancellationToken);
+            }
+
+            var scrollTime = stepTimer.ElapsedMilliseconds;
+            stepTimer.Restart();
+
             // Wait for network to be idle using the configured idle timeout (SPA support)
             // This allows SPAs time to finish their API calls after initial load
+            // MaxNetworkIdleWaitMs caps total wait time for pages with persistent connections (chat widgets, etc.)
             try
             {
                 await page.WaitForNetworkIdleAsync(new WaitForNetworkIdleOptions
                 {
                     IdleTime = _options.NetworkIdleTimeoutMs,
-                    Timeout = _options.PageTimeoutSeconds * 1000
+                    Timeout = _options.MaxNetworkIdleWaitMs
                 });
             }
             catch (TimeoutException)
             {
                 // Network didn't become idle within timeout - continue anyway
                 // This is expected for pages with persistent connections (websockets, SSE, etc.)
-                _logger.LogDebug("Network idle timeout for {Url}, continuing with current state", url);
+                _logger.LogInformation("Network idle timeout after {Timeout}ms for {Url}, continuing with current state",
+                    _options.MaxNetworkIdleWaitMs, url);
             }
+
+            var networkIdleTime = stepTimer.ElapsedMilliseconds;
+            stepTimer.Restart();
+
+            // If there are images still loading after network idle, give them a grace period to finish
+            // This catches late-loading images without waiting the full idle time for every page
+            var gracePeriodTime = 0L;
+            if (imageListenerHandle.HasPendingImages && _options.PendingImageGracePeriodMs > 0)
+            {
+                _logger.LogDebug("Waiting for pending images on {Url}", url);
+                await imageListenerHandle.WaitForPendingImagesAsync(
+                    TimeSpan.FromMilliseconds(_options.PendingImageGracePeriodMs),
+                    cancellationToken);
+                gracePeriodTime = stepTimer.ElapsedMilliseconds;
+            }
+
+            _logger.LogInformation(
+                "Page timing for {Url}: Navigate={NavigateMs}ms, Scroll={ScrollMs}ms, NetworkIdle={IdleMs}ms, GracePeriod={GraceMs}ms",
+                url, navigationTime, scrollTime, networkIdleTime, gracePeriodTime);
 
             if (navigationResponse == null)
             {
@@ -1093,6 +1160,109 @@ public partial class CrawlerService : ICrawlerService, IDisposable
             _logger.LogDebug("Browser lock released");
         }
     }
+
+    /// <summary>
+    /// Scrolls the page using discrete steps and simulates mouse movement to trigger lazy-loaded images.
+    /// Smooth scroll doesn't animate in headless Chrome, so we use discrete scroll steps instead.
+    /// Mouse movement helps trigger hover-based lazy loaders that some sites use.
+    /// Step count is dynamic based on page height to ensure proper coverage on long pages.
+    /// </summary>
+    private async Task ScrollPageToTriggerLazyImagesAsync(IPage page, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Get page dimensions
+            var dimensions = await page.EvaluateFunctionAsync<PageDimensions>("""
+                () => ({
+                    scrollHeight: document.body.scrollHeight,
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight
+                })
+                """);
+
+            if (dimensions.ScrollHeight <= 0)
+                return;
+
+            // Dynamic scroll steps based on page height:
+            // - Step every ~400px of content (half a typical viewport)
+            // - Minimum 8 steps to ensure basic coverage
+            // - Maximum 30 steps to cap scroll time on extremely long pages
+            const int pixelsPerStep = 400;
+            const int minSteps = 8;
+            const int maxSteps = 30;
+            var scrollDelayMs = _options.ScrollStepDelayMs;
+
+            var calculatedSteps = dimensions.ScrollHeight / pixelsPerStep;
+            var scrollSteps = Math.Clamp(calculatedSteps, minSteps, maxSteps);
+            var stepSize = dimensions.ScrollHeight / scrollSteps;
+
+            _logger.LogDebug("Scrolling page: height={Height}px, steps={Steps}, stepSize={StepSize}px",
+                dimensions.ScrollHeight, scrollSteps, stepSize);
+
+            for (var i = 1; i <= scrollSteps; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var scrollPosition = stepSize * i;
+                await page.EvaluateFunctionAsync($"() => window.scrollTo(0, {scrollPosition})");
+
+                // Simulate mouse movement across the viewport at current scroll position
+                // This triggers hover-based lazy loaders that some sites use
+                await SimulateMouseMovementAsync(page, dimensions.ViewportWidth, dimensions.ViewportHeight);
+
+                await Task.Delay(scrollDelayMs, cancellationToken);
+            }
+
+            // Ensure we scroll to absolute bottom (catches footer content like author bios)
+            await page.EvaluateFunctionAsync($"() => window.scrollTo(0, {dimensions.ScrollHeight})");
+            await SimulateMouseMovementAsync(page, dimensions.ViewportWidth, dimensions.ViewportHeight);
+            await Task.Delay(scrollDelayMs, cancellationToken);
+
+            // Brief scroll back up to trigger any "scroll-up" lazy loaders
+            await page.EvaluateFunctionAsync($"() => window.scrollTo(0, {dimensions.ScrollHeight / 2})");
+            await Task.Delay(50, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Error during page scroll: {Error}", ex.Message);
+            // Non-fatal - continue without scroll
+        }
+    }
+
+    /// <summary>
+    /// Simulates mouse movement across the viewport to trigger hover-based lazy loaders.
+    /// </summary>
+    private static async Task SimulateMouseMovementAsync(IPage page, int viewportWidth, int viewportHeight)
+    {
+        try
+        {
+            // Move mouse in a pattern across the viewport
+            // Start from top-left, move to center, then sweep across
+            var positions = new[]
+            {
+                (x: viewportWidth / 4, y: viewportHeight / 4),
+                (x: viewportWidth / 2, y: viewportHeight / 2),
+                (x: viewportWidth * 3 / 4, y: viewportHeight / 2),
+                (x: viewportWidth / 2, y: viewportHeight * 3 / 4)
+            };
+
+            foreach (var (x, y) in positions)
+            {
+                await page.Mouse.MoveAsync(x, y);
+            }
+        }
+        catch
+        {
+            // Non-fatal - continue if mouse simulation fails
+        }
+    }
+
+    // ReSharper disable once ClassNeverInstantiated.Local - Instantiated by Puppeteer JSON deserializer
+    private record PageDimensions(int ScrollHeight, int ViewportWidth, int ViewportHeight);
 
     public void Dispose()
     {

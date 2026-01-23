@@ -27,4 +27,18 @@ public interface IImageAnalyzerService
 /// <summary>
 /// Handle for detaching CDP image listeners.
 /// </summary>
-public interface ICdpImageListenerHandle : IAsyncDisposable;
+public interface ICdpImageListenerHandle : IAsyncDisposable
+{
+    /// <summary>
+    /// Gets whether there are images that have started loading but haven't finished yet.
+    /// </summary>
+    bool HasPendingImages { get; }
+
+    /// <summary>
+    /// Waits for any pending images to finish loading, up to the specified timeout.
+    /// </summary>
+    /// <param name="timeout">Maximum time to wait for pending images.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True if all pending images finished, false if timed out with images still pending.</returns>
+    Task<bool> WaitForPendingImagesAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
+}

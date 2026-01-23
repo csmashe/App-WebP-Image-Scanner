@@ -261,7 +261,7 @@ public class CrawlerServiceTests
 
         Assert.That(options.MaxPagesPerScan, Is.EqualTo(1000));
         Assert.That(options.PageTimeoutSeconds, Is.EqualTo(30));
-        Assert.That(options.NetworkIdleTimeoutMs, Is.EqualTo(2000));
+        Assert.That(options.NetworkIdleTimeoutMs, Is.EqualTo(500));
         Assert.That(options.DelayBetweenPagesMs, Is.EqualTo(500));
         Assert.That(options.MaxRetries, Is.EqualTo(3));
         Assert.That(options.RespectRobotsTxt, Is.True);

@@ -11,7 +11,6 @@ function initializeGA(measurementId: string): void {
     return
   }
 
-  // Load gtag.js script
   const script = document.createElement('script')
   script.async = true
   script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`
@@ -19,8 +18,9 @@ function initializeGA(measurementId: string): void {
 
   // Initialize dataLayer and gtag function
   window.dataLayer = window.dataLayer || []
-  window.gtag = function gtag(...args: unknown[]) {
-    window.dataLayer.push(args)
+  window.gtag = function () {
+    // eslint-disable-next-line prefer-rest-params
+    window.dataLayer.push(arguments)
   }
 
   // Configure gtag with anonymized IP for privacy

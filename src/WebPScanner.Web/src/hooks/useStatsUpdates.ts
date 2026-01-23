@@ -8,13 +8,20 @@ const HUB_URL = '/hubs/scanprogress'
 /** Reconnect delays in milliseconds */
 const RECONNECT_DELAYS = [0, 2000, 5000, 10000, 30000]
 
+/** Initial connection retry delays in milliseconds */
+const INITIAL_RETRY_DELAYS = [2000, 5000, 10000, 30000]
+
 /**
  * Custom hook for subscribing to real-time aggregate stats updates.
  * Automatically connects to SignalR and subscribes to stats updates.
+ * Retries connection on initial failure.
  */
 export function useStatsUpdates(onStatsUpdate: (stats: AggregateStats) => void) {
   const connectionRef = useRef<signalR.HubConnection | null>(null)
   const isConnectingRef = useRef(false)
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const retryAttemptRef = useRef(0)
+  const isMountedRef = useRef(true)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -25,6 +32,30 @@ export function useStatsUpdates(onStatsUpdate: (stats: AggregateStats) => void) 
   useEffect(() => {
     latestOnStatsUpdateRef.current = onStatsUpdate
   }, [onStatsUpdate])
+
+  // Use a ref to hold the connect function to break circular dependency
+  const connectRef = useRef<(() => Promise<void>) | undefined>(undefined)
+
+  const scheduleRetry = useCallback(() => {
+    // Don't retry if unmounted or already connected
+    if (!isMountedRef.current || connectionRef.current?.state === signalR.HubConnectionState.Connected) {
+      return
+    }
+
+    const retryIndex = Math.min(retryAttemptRef.current, INITIAL_RETRY_DELAYS.length - 1)
+    const delay = INITIAL_RETRY_DELAYS[retryIndex]
+
+    console.log(`Stats connection: scheduling retry ${retryAttemptRef.current + 1} in ${delay}ms`)
+
+    retryTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current && connectRef.current) {
+        retryAttemptRef.current++
+        // Reset isConnectingRef so connect() will actually try
+        isConnectingRef.current = false
+        connectRef.current()
+      }
+    }, delay)
+  }, [])
 
   const connect = useCallback(async () => {
     // Prevent concurrent connection attempts
@@ -51,12 +82,12 @@ export function useStatsUpdates(onStatsUpdate: (stats: AggregateStats) => void) 
 
       // Handle connection state changes
       connection.onreconnecting((err) => {
-        console.warn('SignalR reconnecting:', err)
+        console.warn('SignalR stats reconnecting:', err)
         setConnected(false)
       })
 
       connection.onreconnected(async () => {
-        console.log('SignalR reconnected')
+        console.log('SignalR stats reconnected')
         setConnected(true)
         // Re-subscribe to stats after reconnection
         try {
@@ -67,10 +98,14 @@ export function useStatsUpdates(onStatsUpdate: (stats: AggregateStats) => void) 
       })
 
       connection.onclose((err) => {
-        console.log('SignalR connection closed:', err)
+        console.log('SignalR stats connection closed:', err)
         setConnected(false)
         connectionRef.current = null
         isConnectingRef.current = false
+        // Schedule retry on unexpected close
+        if (isMountedRef.current) {
+          scheduleRetry()
+        }
       })
 
       // Start connection
@@ -83,16 +118,31 @@ export function useStatsUpdates(onStatsUpdate: (stats: AggregateStats) => void) 
 
       setConnected(true)
       isConnectingRef.current = false
+      // Reset retry counter on successful connection
+      retryAttemptRef.current = 0
     } catch (err) {
-      console.error('SignalR connection error:', err)
+      console.error('SignalR stats connection error:', err)
       setConnected(false)
       setError(err instanceof Error ? err.message : 'Failed to connect')
       connectionRef.current = null
       isConnectingRef.current = false
+      // Schedule retry on initial connection failure
+      scheduleRetry()
     }
-  }, []) // No dependencies - uses refs for mutable state
+  }, [scheduleRetry])
+
+  // Keep connectRef up to date
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   const disconnect = useCallback(async () => {
+    // Clear any pending retry
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current)
+      retryTimeoutRef.current = null
+    }
+
     const connection = connectionRef.current
     if (!connection) return
 
@@ -112,8 +162,15 @@ export function useStatsUpdates(onStatsUpdate: (stats: AggregateStats) => void) 
 
   // Connect on mount, disconnect on unmount
   useEffect(() => {
+    isMountedRef.current = true
     connect()
     return () => {
+      isMountedRef.current = false
+      // Clear any pending retry
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current)
+        retryTimeoutRef.current = null
+      }
       disconnect()
     }
   }, [connect, disconnect])

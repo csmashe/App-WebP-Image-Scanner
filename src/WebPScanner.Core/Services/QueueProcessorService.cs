@@ -244,12 +244,23 @@ public class QueueProcessorService : BackgroundService
         var progressService = serviceProvider.GetService<IScanProgressService>();
         var liveStatsTracker = serviceProvider.GetRequiredService<ILiveScanStatsTracker>();
 
-        // Create a timeout token based on MaxScanDurationMinutes
-        using var timeoutCts = new CancellationTokenSource(
-            TimeSpan.FromMinutes(_securityOptions.MaxScanDurationMinutes));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, timeoutCts.Token);
-        var effectiveToken = linkedCts.Token;
+        // Create a timeout token based on MaxScanDurationMinutes (0 = no timeout)
+        CancellationTokenSource? timeoutCts = null;
+        CancellationTokenSource? linkedCts = null;
+        CancellationToken effectiveToken;
+
+        if (_securityOptions.MaxScanDurationMinutes > 0)
+        {
+            timeoutCts = new CancellationTokenSource(
+                TimeSpan.FromMinutes(_securityOptions.MaxScanDurationMinutes));
+            linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, timeoutCts.Token);
+            effectiveToken = linkedCts.Token;
+        }
+        else
+        {
+            effectiveToken = cancellationToken;
+        }
 
         // Track saved image URLs to avoid duplicates
         // Use Ordinal comparison since URL paths are case-sensitive on most servers
@@ -563,8 +574,8 @@ public class QueueProcessorService : BackgroundService
         catch (OperationCanceledException)
         {
             // Determine if this was a timeout, app shutdown, or user cancellation
-            var wasTimeout = timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
-            var wasAppShutdown = cancellationToken.IsCancellationRequested && !timeoutCts.IsCancellationRequested;
+            var wasTimeout = timeoutCts?.IsCancellationRequested == true && !cancellationToken.IsCancellationRequested;
+            var wasAppShutdown = cancellationToken.IsCancellationRequested && timeoutCts?.IsCancellationRequested != true;
 
             if (wasAppShutdown)
             {
@@ -625,6 +636,12 @@ public class QueueProcessorService : BackgroundService
                     // Ignore SignalR errors during error handling
                 }
             }
+        }
+        finally
+        {
+            // Dispose CancellationTokenSources
+            timeoutCts?.Dispose();
+            linkedCts?.Dispose();
         }
     }
 

@@ -1184,43 +1184,43 @@ public partial class CrawlerService : ICrawlerService, IDisposable
                 return;
 
             // Dynamic scroll steps based on page height:
-            // - Step every ~400px of content (half a typical viewport)
-            // - Minimum 8 steps to ensure basic coverage
-            // - Maximum 30 steps to cap scroll time on extremely long pages
-            const int pixelsPerStep = 400;
-            const int minSteps = 8;
-            const int maxSteps = 30;
+            // - Step every ~600px of content
+            // - Minimum 4 steps to ensure basic coverage
+            // - Maximum 15 steps to cap scroll time on extremely long pages
+            // Mouse wheel scrolling triggers events more reliably, allowing faster scrolling
+            const int pixelsPerStep = 600;
+            const int minSteps = 4;
+            const int maxSteps = 15;
             var scrollDelayMs = _options.ScrollStepDelayMs;
 
+            // ReSharper disable PossibleLossOfFraction - Intentional integer division for pixel coordinates
             var calculatedSteps = dimensions.ScrollHeight / pixelsPerStep;
             var scrollSteps = Math.Clamp(calculatedSteps, minSteps, maxSteps);
             var stepSize = dimensions.ScrollHeight / scrollSteps;
+            // ReSharper restore PossibleLossOfFraction
 
             _logger.LogDebug("Scrolling page: height={Height}px, steps={Steps}, stepSize={StepSize}px",
                 dimensions.ScrollHeight, scrollSteps, stepSize);
+
+            // Move mouse to center of viewport first, then use wheel to scroll
+            // This is more realistic and triggers scroll-based lazy loaders better
+            // ReSharper disable once PossibleLossOfFraction - Intentional integer division for pixel coordinates
+            // ReSharper disable once PossibleLossOfFraction
+            await page.Mouse.MoveAsync(dimensions.ViewportWidth / 2, dimensions.ViewportHeight / 2);
 
             for (var i = 1; i <= scrollSteps; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var scrollPosition = stepSize * i;
-                await page.EvaluateFunctionAsync($"() => window.scrollTo(0, {scrollPosition})");
-
-                // Simulate mouse movement across the viewport at current scroll position
-                // This triggers hover-based lazy loaders that some sites use
-                await SimulateMouseMovementAsync(page, dimensions.ViewportWidth, dimensions.ViewportHeight);
+                // Use mouse wheel to scroll - fires wheel events that lazy loaders may listen for
+                await page.Mouse.WheelAsync(0, stepSize);
 
                 await Task.Delay(scrollDelayMs, cancellationToken);
             }
 
-            // Ensure we scroll to absolute bottom (catches footer content like author bios)
+            // Ensure we reach absolute bottom with a final scroll
             await page.EvaluateFunctionAsync($"() => window.scrollTo(0, {dimensions.ScrollHeight})");
-            await SimulateMouseMovementAsync(page, dimensions.ViewportWidth, dimensions.ViewportHeight);
             await Task.Delay(scrollDelayMs, cancellationToken);
-
-            // Brief scroll back up to trigger any "scroll-up" lazy loaders
-            await page.EvaluateFunctionAsync($"() => window.scrollTo(0, {dimensions.ScrollHeight / 2})");
-            await Task.Delay(50, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -1230,34 +1230,6 @@ public partial class CrawlerService : ICrawlerService, IDisposable
         {
             _logger.LogDebug("Error during page scroll: {Error}", ex.Message);
             // Non-fatal - continue without scroll
-        }
-    }
-
-    /// <summary>
-    /// Simulates mouse movement across the viewport to trigger hover-based lazy loaders.
-    /// </summary>
-    private static async Task SimulateMouseMovementAsync(IPage page, int viewportWidth, int viewportHeight)
-    {
-        try
-        {
-            // Move mouse in a pattern across the viewport
-            // Start from top-left, move to center, then sweep across
-            var positions = new[]
-            {
-                (x: viewportWidth / 4, y: viewportHeight / 4),
-                (x: viewportWidth / 2, y: viewportHeight / 2),
-                (x: viewportWidth * 3 / 4, y: viewportHeight / 2),
-                (x: viewportWidth / 2, y: viewportHeight * 3 / 4)
-            };
-
-            foreach (var (x, y) in positions)
-            {
-                await page.Mouse.MoveAsync(x, y);
-            }
-        }
-        catch
-        {
-            // Non-fatal - continue if mouse simulation fails
         }
     }
 

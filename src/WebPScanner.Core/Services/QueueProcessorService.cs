@@ -88,84 +88,55 @@ public class QueueProcessorService : BackgroundService
 
             _logger.LogInformation("Found {Count} interrupted scan(s) to process", scanList.Count);
 
-            // Throttle concurrent resume operations to respect MaxConcurrentScans
-            var semaphore = new SemaphoreSlim(_options.MaxConcurrentScans);
-            var resumeTasks = new List<Task>();
-
-            try
+            foreach (var scan in scanList)
             {
-                foreach (var scan in scanList)
+                var checkpoint = await checkpointRepository.GetByScanJobIdAsync(scan.ScanId, cancellationToken);
+
+                if (checkpoint != null)
                 {
-                    var checkpoint = await checkpointRepository.GetByScanJobIdAsync(scan.ScanId, cancellationToken);
+                    _logger.LogInformation(
+                        "Resuming scan {ScanId} from checkpoint. Visited: {Visited}, Discovered: {Discovered}",
+                        scan.ScanId, checkpoint.PagesVisited, checkpoint.PagesDiscovered);
 
-                    if (checkpoint != null)
+                    // Capture for closure
+                    var capturedScan = scan;
+                    var capturedCheckpoint = checkpoint;
+
+                    // Fire and forget - the scan will run concurrently with normal queue processing
+                    // DequeueAsync checks active scan count to respect MaxConcurrentScans
+                    _ = Task.Run(async () =>
                     {
-                        _logger.LogInformation(
-                            "Resuming scan {ScanId} from checkpoint. Visited: {Visited}, Discovered: {Discovered}",
-                            scan.ScanId, checkpoint.PagesVisited, checkpoint.PagesDiscovered);
+                        using var crawlScope = _serviceProvider.CreateScope();
+                        await ExecuteScanAsync(crawlScope.ServiceProvider, capturedScan, capturedCheckpoint, cancellationToken);
+                    }, cancellationToken);
+                }
+                else
+                {
+                    // No checkpoint - mark as failed
+                    _logger.LogWarning(
+                        "Scan {ScanId} was interrupted without checkpoint. Marking as failed.",
+                        scan.ScanId);
 
-                        // Capture for closure
-                        var capturedScan = scan;
-                        var capturedCheckpoint = checkpoint;
-                        var capturedSemaphore = semaphore;
+                    scan.Status = ScanStatus.Failed;
+                    scan.ErrorMessage = "Scan was interrupted without checkpoint. Please resubmit.";
+                    scan.CompletedAt = DateTime.UtcNow;
+                    await scanJobRepository.UpdateAsync(scan, cancellationToken);
 
-                        // Launch the resume with concurrency throttling
-                        var task = Task.Run(async () =>
-                        {
-                            var acquired = false;
-                            try
-                            {
-                                await capturedSemaphore.WaitAsync(cancellationToken);
-                                acquired = true;
-                                using var crawlScope = _serviceProvider.CreateScope();
-                                await ExecuteScanAsync(crawlScope.ServiceProvider, capturedScan, capturedCheckpoint, cancellationToken);
-                            }
-                            finally
-                            {
-                                if (acquired)
-                                    capturedSemaphore.Release();
-                            }
-                        }, cancellationToken);
-
-                        resumeTasks.Add(task);
-                    }
-                    else
+                    // Notify clients of failure
+                    var progressService = scope.ServiceProvider.GetService<IScanProgressService>();
+                    if (progressService != null)
                     {
-                        // No checkpoint - mark as failed
-                        _logger.LogWarning(
-                            "Scan {ScanId} was interrupted without checkpoint. Marking as failed.",
-                            scan.ScanId);
-
-                        scan.Status = ScanStatus.Failed;
-                        scan.ErrorMessage = "Scan was interrupted without checkpoint. Please resubmit.";
-                        scan.CompletedAt = DateTime.UtcNow;
-                        await scanJobRepository.UpdateAsync(scan, cancellationToken);
-
-                        // Notify clients of failure
-                        var progressService = scope.ServiceProvider.GetService<IScanProgressService>();
-                        if (progressService != null)
+                        await progressService.SendScanFailedAsync(new ScanFailedDto
                         {
-                            await progressService.SendScanFailedAsync(new ScanFailedDto
-                            {
-                                ScanId = scan.ScanId,
-                                ErrorMessage = scan.ErrorMessage,
-                                FailedAt = DateTime.UtcNow
-                            });
-                        }
+                            ScanId = scan.ScanId,
+                            ErrorMessage = scan.ErrorMessage,
+                            FailedAt = DateTime.UtcNow
+                        });
                     }
                 }
+            }
 
-                // Wait for all resume tasks to complete before disposing the semaphore
-                if (resumeTasks.Count > 0)
-                {
-                    _logger.LogInformation("Waiting for {Count} interrupted scan(s) to complete", resumeTasks.Count);
-                    await Task.WhenAll(resumeTasks);
-                }
-            }
-            finally
-            {
-                semaphore.Dispose();
-            }
+            _logger.LogInformation("Resumed interrupted scan(s), continuing with normal queue processing");
         }
         catch (Exception ex)
         {

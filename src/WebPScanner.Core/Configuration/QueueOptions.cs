@@ -42,4 +42,13 @@ public class QueueOptions
     /// Interval in seconds for the background queue processor to check for new jobs.
     /// </summary>
     public int ProcessingIntervalSeconds { get; init; } = 5;
+
+    /// <summary>
+    /// Default estimated number of pages for sites that haven't started scanning yet.
+    /// Used for queue wait time estimation. Once a scan begins, the actual discovered
+    /// page count replaces this estimate. Set to a reasonable average - larger sites
+    /// will show corrected estimates once scanning starts.
+    /// </summary>
+    // ReSharper disable once AutoPropertyCanBeMadeGetOnly.Global - init required for config binding
+    public int DefaultEstimatedPagesPerSite { get; init; } = 100;
 }

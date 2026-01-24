@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using WebPScanner.Api.Hubs;
 using WebPScanner.Api.Services;
+using WebPScanner.Core.Configuration;
 using WebPScanner.Core.DTOs;
 using WebPScanner.Core.Entities;
 using WebPScanner.Core.Enums;
@@ -16,6 +18,8 @@ public class ScanProgressServiceTests
     private Mock<IHubContext<ScanProgressHub, IScanProgressClient>> _mockHubContext = null!;
     private Mock<IScanJobRepository> _mockRepository = null!;
     private Mock<IAggregateStatsService> _mockAggregateStatsService = null!;
+    private Mock<ILiveScanStatsTracker> _mockLiveScanStatsTracker = null!;
+    private Mock<IOptions<QueueOptions>> _mockQueueOptions = null!;
     private Mock<ILogger<ScanProgressService>> _mockLogger = null!;
     private Mock<IScanProgressClient> _mockClient = null!;
     private Mock<IHubClients<IScanProgressClient>> _mockClients = null!;
@@ -27,17 +31,25 @@ public class ScanProgressServiceTests
         _mockHubContext = new Mock<IHubContext<ScanProgressHub, IScanProgressClient>>();
         _mockRepository = new Mock<IScanJobRepository>();
         _mockAggregateStatsService = new Mock<IAggregateStatsService>();
+        _mockLiveScanStatsTracker = new Mock<ILiveScanStatsTracker>();
+        _mockQueueOptions = new Mock<IOptions<QueueOptions>>();
         _mockLogger = new Mock<ILogger<ScanProgressService>>();
         _mockClient = new Mock<IScanProgressClient>();
         _mockClients = new Mock<IHubClients<IScanProgressClient>>();
 
         _mockHubContext.Setup(x => x.Clients).Returns(_mockClients.Object);
         _mockClients.Setup(x => x.Group(It.IsAny<string>())).Returns(_mockClient.Object);
+        _mockQueueOptions.Setup(x => x.Value).Returns(new QueueOptions());
+        _mockLiveScanStatsTracker.Setup(x => x.GetTotalRemainingPagesForActiveScans()).Returns(0);
+        _mockLiveScanStatsTracker.Setup(x => x.GetActiveScansRemainingPagesSorted()).Returns([]);
+        _mockAggregateStatsService.Setup(x => x.GetAverageTimePerPageTicksAsync(It.IsAny<CancellationToken>())).ReturnsAsync(0L);
 
         _service = new ScanProgressService(
             _mockHubContext.Object,
             _mockRepository.Object,
             _mockAggregateStatsService.Object,
+            _mockLiveScanStatsTracker.Object,
+            _mockQueueOptions.Object,
             _mockLogger.Object);
     }
 

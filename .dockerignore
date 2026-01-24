@@ -13,6 +13,9 @@
 # .NET build outputs
 **/bin/
 **/obj/
+# Rider sometimes creates directories with backslashes (Windows-style paths)
+**/bin\\*
+**/obj\\*
 **/*.user
 **/*.suo
 **/*.cache

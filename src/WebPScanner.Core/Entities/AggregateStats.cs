@@ -42,6 +42,12 @@ public class AggregateStats
     public double TotalSavingsPercentSum { get; set; }
 
     /// <summary>
+    /// Total scan duration in ticks across all completed scans.
+    /// Used with TotalPagesCrawled to calculate average time per page for queue wait estimates.
+    /// </summary>
+    public long TotalScanDurationTicks { get; set; }
+
+    /// <summary>
     /// Last time the aggregate stats were updated.
     /// </summary>
     public DateTime LastUpdated { get; set; }

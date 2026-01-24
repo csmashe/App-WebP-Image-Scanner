@@ -17,4 +17,10 @@ public interface IAggregateStatsService
     /// Gets the combined stats from aggregate tables plus any live (non-purged) data.
     /// </summary>
     Task<AggregateStatsDto> GetCombinedStatsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the average time per page in ticks based on historical scan data.
+    /// Returns 0 if no data is available yet.
+    /// </summary>
+    Task<long> GetAverageTimePerPageTicksAsync(CancellationToken cancellationToken = default);
 }

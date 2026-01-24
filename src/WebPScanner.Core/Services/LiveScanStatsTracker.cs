@@ -193,6 +193,43 @@ public class LiveScanStatsTracker : ILiveScanStatsTracker
         return (totalScans, totalPages, totalImages, totalOriginalSize, totalWebPSize, totalSavingsPercentSum, imageTypeStats, categoryStats);
     }
 
+    public int GetTotalRemainingPagesForActiveScans()
+    {
+        var totalRemaining = 0;
+
+        foreach (var kvp in _scanStats)
+        {
+            var stats = kvp.Value;
+            lock (stats.Lock)
+            {
+                // Remaining pages = discovered - scanned (minimum 0)
+                var remaining = Math.Max(0, stats.PagesDiscovered - stats.PagesScanned);
+                totalRemaining += remaining;
+            }
+        }
+
+        return totalRemaining;
+    }
+
+    public List<int> GetActiveScansRemainingPagesSorted()
+    {
+        var remainingPages = new List<int>();
+
+        foreach (var kvp in _scanStats)
+        {
+            var stats = kvp.Value;
+            lock (stats.Lock)
+            {
+                var remaining = Math.Max(0, stats.PagesDiscovered - stats.PagesScanned);
+                remainingPages.Add(remaining);
+            }
+        }
+
+        // Sort ascending so the scan closest to finishing is first
+        remainingPages.Sort();
+        return remainingPages;
+    }
+
     private static string DetermineCategory(string url)
     {
         var lowerUrl = url.ToLowerInvariant();

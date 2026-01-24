@@ -44,8 +44,9 @@ public class CrawlerOptions
 
     /// <summary>
     /// Delay in milliseconds between scroll steps when scrolling to trigger lazy images.
+    /// Need enough time for lazy loaders to trigger AND for network requests to complete.
     /// </summary>
-    public int ScrollStepDelayMs { get; init; } = 100;
+    public int ScrollStepDelayMs { get; init; } = 60;
 
     /// <summary>
     /// Delay in milliseconds between page requests.

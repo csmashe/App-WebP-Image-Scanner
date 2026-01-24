@@ -18,6 +18,8 @@ export interface QueuePositionUpdate {
   scanId: string
   position: number
   totalInQueue: number
+  /** Estimated wait time in seconds, null if no historical data available */
+  estimatedWaitSeconds: number | null
 }
 
 /** Scan started notification from SignalR */

@@ -31,6 +31,7 @@ export interface ScanState {
   // Queue state
   queuePosition: number
   totalInQueue: number
+  estimatedWaitSeconds: number | null
 
   // Scanning progress
   currentUrl: string | null
@@ -87,6 +88,7 @@ const initialState: ScanState = {
   convertToWebP: false,
   queuePosition: 0,
   totalInQueue: 0,
+  estimatedWaitSeconds: null,
   currentUrl: null,
   pagesScanned: 0,
   pagesDiscovered: 0,
@@ -141,6 +143,7 @@ export const useScanStore = create<ScanState & ScanActions>((set, get) => ({
     set({
       queuePosition: data.position,
       totalInQueue: data.totalInQueue,
+      estimatedWaitSeconds: data.estimatedWaitSeconds,
     })
   },
 

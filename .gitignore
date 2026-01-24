@@ -15,6 +15,9 @@ ralph.sh
 # .NET
 **/bin/
 **/obj/
+# Rider sometimes creates directories with literal backslashes in names (Linux filesystem)
+**/bin\\*
+**/obj\\*
 **/*.user
 **/*.suo
 *.db

@@ -19,6 +19,15 @@ public class QueuePositionUpdateDto
     /// Total number of jobs in the queue.
     /// </summary>
     public int TotalInQueue { get; init; }
+
+    /// <summary>
+    /// Estimated wait time in seconds before this scan starts.
+    /// Calculated as: avg_time_per_page × (remaining pages for processing scans + queued_sites_ahead × default_pages_estimate).
+    /// Returns null if no historical data is available for estimation.
+    /// </summary>
+    // ReSharper disable once UnusedMember.Global - Used by JSON serializer
+    // ReSharper disable once UnusedAutoPropertyAccessor.Global
+    public int? EstimatedWaitSeconds { get; init; }
 }
 
 /// <summary>

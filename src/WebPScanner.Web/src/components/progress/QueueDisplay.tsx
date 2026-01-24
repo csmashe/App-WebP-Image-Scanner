@@ -8,8 +8,29 @@ function truncateUrl(url: string, maxLength: number = 40): string {
   return url.substring(0, maxLength - 3) + '...'
 }
 
+/** Format seconds into human-readable time */
+function formatWaitTime(seconds: number): string {
+  if (seconds < 60) {
+    return `~${seconds} second${seconds !== 1 ? 's' : ''}`
+  }
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  if (minutes < 60) {
+    if (remainingSeconds === 0) {
+      return `~${minutes} minute${minutes !== 1 ? 's' : ''}`
+    }
+    return `~${minutes}m ${remainingSeconds}s`
+  }
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  if (remainingMinutes === 0) {
+    return `~${hours} hour${hours !== 1 ? 's' : ''}`
+  }
+  return `~${hours}h ${remainingMinutes}m`
+}
+
 export function QueueDisplay() {
-  const { targetUrl, queuePosition, totalInQueue } = useScanStore()
+  const { targetUrl, queuePosition, totalInQueue, estimatedWaitSeconds } = useScanStore()
 
   return (
     <div className="space-y-6">
@@ -46,6 +67,19 @@ export function QueueDisplay() {
             <span className="ml-1 text-sm text-slate-500">of {totalInQueue}</span>
           </div>
         </div>
+
+        {/* Estimated wait time */}
+        {estimatedWaitSeconds !== null && (
+          <div className="mt-3 flex items-center justify-between border-t border-slate-200 dark:border-slate-700 pt-3">
+            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 transition-colors duration-300">
+              <Clock className="h-4 w-4" />
+              <span className="text-sm">Estimated Wait</span>
+            </div>
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              {formatWaitTime(estimatedWaitSeconds)}
+            </span>
+          </div>
+        )}
 
         {/* Visual queue indicator */}
         <div className="mt-4">

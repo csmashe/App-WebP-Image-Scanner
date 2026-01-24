@@ -183,6 +183,7 @@ describe('scanStore', () => {
         scanId: 'scan-123',
         position: 2,
         totalInQueue: 10,
+        estimatedWaitSeconds: 120,
       }
       store.handleQueuePositionUpdate(update)
 
@@ -199,6 +200,7 @@ describe('scanStore', () => {
         scanId: 'scan-123',
         position: 1,
         totalInQueue: 5,
+        estimatedWaitSeconds: null,
       })
 
       expect(useScanStore.getState().viewState).toBe('queued')
@@ -212,6 +214,7 @@ describe('scanStore', () => {
         scanId: 'different-scan',
         position: 1,
         totalInQueue: 10,
+        estimatedWaitSeconds: 60,
       })
 
       const state = useScanStore.getState()

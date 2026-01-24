@@ -32,4 +32,17 @@ public interface ILiveScanStatsTracker
     /// </summary>
     (int TotalScans, int TotalPages, int TotalImages, long TotalOriginalSize, long TotalWebPSize, double TotalSavingsPercentSum,
         Dictionary<string, LiveImageTypeStat> ImageTypeStats, Dictionary<string, LiveCategoryStat> CategoryStats) GetCombinedLiveStats();
+
+    /// <summary>
+    /// Get the total remaining pages across all currently processing scans.
+    /// Returns the sum of (pagesDiscovered - pagesScanned) for each active scan.
+    /// Used for queue wait time estimation.
+    /// </summary>
+    int GetTotalRemainingPagesForActiveScans();
+
+    /// <summary>
+    /// Get the remaining pages for each active scan, sorted ascending (closest to finishing first).
+    /// Used for accurate queue wait time estimation that accounts for parallel scan progress.
+    /// </summary>
+    List<int> GetActiveScansRemainingPagesSorted();
 }

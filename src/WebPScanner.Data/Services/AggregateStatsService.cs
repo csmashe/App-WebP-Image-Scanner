@@ -41,6 +41,12 @@ public class AggregateStatsService : IAggregateStatsService
 
         var images = scanJob.DiscoveredImages.ToList();
 
+        // Calculate scan duration for queue wait time estimation
+        // Clamp to 0 to handle edge cases like clock skew
+        var scanDurationTicks = scanJob is { StartedAt: not null, CompletedAt: not null }
+            ? Math.Max(0, (scanJob.CompletedAt.Value - scanJob.StartedAt.Value).Ticks)
+            : 0L;
+
         // Pre-aggregate all data before the retry loop since it's immutable
         var pagesScanned = scanJob.PagesScanned;
         var imageCount = images.Count;
@@ -79,7 +85,7 @@ public class AggregateStatsService : IAggregateStatsService
             {
                 await UpdateMainAggregateStatsAsync(
                     pagesScanned, imageCount, totalOriginalSize,
-                    totalEstimatedWebPSize, totalSavingsPercentSum, cancellationToken);
+                    totalEstimatedWebPSize, totalSavingsPercentSum, scanDurationTicks, cancellationToken);
 
                 foreach (var (category, stats) in categoryAggregates)
                 {
@@ -136,7 +142,7 @@ public class AggregateStatsService : IAggregateStatsService
 
     private async Task UpdateMainAggregateStatsAsync(
         int pagesScanned, int imageCount, long totalOriginalSize,
-        long totalEstimatedWebPSize, double totalSavingsPercentSum,
+        long totalEstimatedWebPSize, double totalSavingsPercentSum, long scanDurationTicks,
         CancellationToken cancellationToken)
     {
         var aggregateStats = await _context.AggregateStats
@@ -154,6 +160,7 @@ public class AggregateStatsService : IAggregateStatsService
         aggregateStats.TotalOriginalSizeBytes += totalOriginalSize;
         aggregateStats.TotalEstimatedWebPSizeBytes += totalEstimatedWebPSize;
         aggregateStats.TotalSavingsPercentSum += totalSavingsPercentSum;
+        aggregateStats.TotalScanDurationTicks += scanDurationTicks;
         aggregateStats.LastUpdated = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -302,6 +309,20 @@ public class AggregateStatsService : IAggregateStatsService
         };
 
         return result;
+    }
+
+    public async Task<long> GetAverageTimePerPageTicksAsync(CancellationToken cancellationToken = default)
+    {
+        var aggregateStats = await _context.AggregateStats
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == 1, cancellationToken);
+
+        if (aggregateStats == null || aggregateStats.TotalPagesCrawled == 0)
+        {
+            return 0;
+        }
+
+        return aggregateStats.TotalScanDurationTicks / aggregateStats.TotalPagesCrawled;
     }
 
     private static string DetermineCategory(string url)
